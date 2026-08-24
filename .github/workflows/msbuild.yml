@@ -38,13 +38,13 @@ jobs:
       working-directory: ${{env.GITHUB_WORKSPACE}}
       run: msbuild /m /p:Configuration=${{env.BUILD_CONFIGURATION}} /property:Platform=x86 ${{env.SOLUTION_FILE_PATH}}
 
-    - name: Include launcher batch file
+    - name: Package release zip
       shell: bash
-      run: cp client/run_client.bat client/bin/Release/run_client.bat
+      run: |
+        cd client/bin/Release
+        7z a -tzip client.zip client.exe AutoUpdater.NET.dll Base32.dll BouncyCastle.Crypto.dll OtpSharp.dll
 
     - uses: actions/upload-artifact@v4
       with:
        name: client
-       path: |
-        client\bin\Release\client.exe
-        client\bin\Release\run_client.bat
+       path: client\bin\Release\client.zip
