@@ -8,7 +8,7 @@ var notifySettings = {
 	mentionGroup: true,
 	mentionWords: [],
 	newsCustom: false,
-	news: false,
+    news: false,
 	explorerDone: false,
 	geologistDone: false,
 	generalDone: false,
@@ -16,11 +16,6 @@ var notifySettings = {
 	newsGeologistStarted: false,
 	newsStorehouseAdded: false
 };
-// News channel messages are plain server-generated text with no structured
-// "type" field, so categories are recognized by keyword. Anything in the
-// news channel that doesn't match one of these falls through to the
-// generic "news" (catch-all) toggle instead. Add more entries here as new
-// categories are identified.
 var newsCategories = [
 	{ key: 'newsExplorerStarted', pattern: /explorer started/i },
 	{ key: 'newsGeologistStarted', pattern: /geologist started/i },
@@ -71,15 +66,46 @@ function specialistPollHandler()
 
 function setupNotifications()
 {
-	var notificationManagerDef = notifications.getDefinitionByName("com.charlesbihis.engine.notification::NotificationManager");
+	var notificationManagerDef = game.def("com.charlesbihis.engine.notification::NotificationManager");
 	notificationManager = new notificationManagerDef(
-		"images/" + notifySettings.theme + ".swf",
+		notifySettings.theme,
 		"images/Icon2.png",
 		"images/Icon4.png",
 		notifySettings.sound ? "images/drop.mp3" : null,
 		notifySettings.displayTime,
 		notifySettings.position
 	);
+}
+function specialistPollHandler()
+{
+	if(!notifySettings.enabled) { return; }
+	if(!notifySettings.explorerDone && !notifySettings.geologistDone && !notifySettings.generalDone) { return; }
+	if(window.nativeWindow.active) { return; }
+	try
+	{
+		if(!game.gi.mCurrentPlayerZone) { return; }
+		var myId = game.player.GetPlayerId();
+		var seen = {};
+		game.gi.mCurrentPlayerZone.GetSpecialists_vector().forEach(function(item) {
+			if(item.getPlayerID() != myId) { return; }
+			var task = item.GetTask();
+			var key = item.GetUniqueID().toKeyString();
+			var remaining = task ? task.GetRemainingTime() : 0;
+			seen[key] = true;
+			var last = specialistLastRemaining[key];
+			specialistLastRemaining[key] = remaining;
+			if(typeof last == "number" && last > 0 && remaining <= 0) {
+				var type = [1,2].indexOf(item.GetBaseType()) != -1 ? item.GetBaseType() : 3;
+				var settingKey = specialistTypeToSetting[type];
+				if(!notifySettings[settingKey]) { return; }
+				notificationShow(loca.GetText("SPE", specialistTypeToLoca[type]) + " " + item.getName(false) + " " + getText('spec_done_desc'));
+			}
+		});
+		Object.keys(specialistLastRemaining).forEach(function(key) {
+			if(!(key in seen)) { delete specialistLastRemaining[key]; }
+		});
+	}
+	catch(e) { }
 }
 
 function notificationLast5Handler(event)
@@ -112,9 +138,6 @@ function notificationHandler(event)
 	if(!event.data.text) { return; }
 	if(event.data.room == "news") {
 		var newsCategory = newsCategories.filter(function(c) { return c.pattern.test(event.data.text); })[0];
-		// Categorized messages are governed only by their own toggle; anything
-		// that doesn't match a known category falls under the generic/catch-all
-		// "News chat trigger" toggle instead.
 		var newsWanted = newsCategory ? notifySettings[newsCategory.key] : notifySettings.news;
 		if(newsWanted) { return notificationShow(event.data.text); }
 		if(notifySettings.newsCustom && notifySettings.mentionWords.length > 0 && notifySettings.mentionWords.some(function(word) { var t = new RegExp(word,"gi"); return t.test(event.data.text); })) {
@@ -142,7 +165,4 @@ if(Object.prototype.toString.call(notifySettings.mentionWords) == "[object Objec
 	notifySettings.mentionWords = [];
 }
 setupNotifications();
-// Specialist completion isn't pushed as an event by the game client, so poll
-// for it instead -- same GetSpecialists_vector()/GetTask() API the duty menu
-// (4-specduty.js) already uses to read specialist state.
 specialistPollIntervalId = setInterval(specialistPollHandler, 15000);
