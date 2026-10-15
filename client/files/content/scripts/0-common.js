@@ -436,6 +436,8 @@ function readLastDir(type) {
 var TimedQueue = function(delay) {
     this.queue = [], 
 	this.index = 0, 
+	this.batchSize = 1,
+	this.tasksQueue = [],
 	this.defaultDelay = delay || 1000, 
 	this.stamp = 0,
 	this.inId = void 0
@@ -447,11 +449,18 @@ TimedQueue.prototype = {
             delay: delay
         })
     },
+    addTask: function(task) {
+        this.tasksQueue.push(task)
+    },
     run: function(index) {
         if (index || 0 === index) {
-			this.index = index;
-		}
-		this.next();
+            this.index = index;
+        }
+        if (this.queue[this.index]) {
+            this.next();
+        } else {
+            this.nextTaskBatch();
+        }
     },
     len: function() {
         return this.queue.length
@@ -461,22 +470,41 @@ TimedQueue.prototype = {
             targetIndex = this.index++,
             current = this.queue[targetIndex],
             next = this.queue[this.index];
-		if(current) {
-			current.fn();
-			if(next) {
-				e.tick(next.delay || this.defaultDelay);
-			}
-		}
+        if(current) {
+            current.fn();
+            if(next) {
+                e.tick(next.delay || this.defaultDelay);
+            } else if(this.tasksQueue.length) {
+                e.tick(this.defaultDelay, function() {
+                    e.nextTaskBatch();
+                });
+            }
+        }
     },
-	tick: function(delay) {
-		var e = this;
-		e.stamp = Date.now() + delay;
-		e.inId = setInterval(function() {
-			if(Date.now() >= e.stamp) {
-				clearInterval(e.inId);
-				e.next();
-			}
-		}, 50);
+    nextTaskBatch: function() {
+        var e = this,
+            batch = this.tasksQueue.splice(0, Math.max(1, this.batchSize));
+        if(!batch.length) {
+            return;
+        }
+        game.gi.SendServerActionBatch(batch);
+        if(this.tasksQueue.length) {
+            e.tick(this.defaultDelay, function() {
+                e.nextTaskBatch();
+            });
+        }
+    },
+    tick: function(delay, callback) {
+        var e = this;
+        e.stamp = Date.now() + delay;
+        e.inId = setInterval(function() {
+            if(Date.now() >= e.stamp) {
+                clearInterval(e.inId);
+                (callback || function() {
+                    e.next();
+                })();
+            }
+        }, 50);
 	},
     reset: function() {
         "number" == typeof this.inId && clearInterval(this.inId), this.index = 0
@@ -708,22 +736,59 @@ Modal.prototype = {
 
 var Settings = function() {
     this.file = new air.File("file:///" + air.File.applicationDirectory.resolvePath(settingsFile).nativePath), 
-	this.fs = new air.FileStream, 
-	this.settings = {}
+	this.settings = {},
+	this.ioReported = !1
 };
 Settings.prototype = {
+    // One stream per call, always closed. A shared FileStream stays open if
+    // anything between open() and close() throws, and every later save then
+    // fails with Error #3013 for the rest of the session.
+    withStream: function(mode, fn) {
+        var fs = new air.FileStream();
+        try {
+            fs.open(this.file, mode);
+            return fn(fs)
+        } finally {
+            try { fs.close() } catch (e) {}
+        }
+    },
+    // Report once, and never with alert() once the game is up: that dialog is
+    // modal and blocks the client until it is dismissed, which is what made a
+    // failed save look like a freeze. Before the game exists there is nothing
+    // to block, so a plain alert is still the only way to be seen.
+    ioError: function(what, e) {
+        debug("Settings " + what + " failed: " + e);
+        if (this.ioReported) return;
+        this.ioReported = !0;
+        var msg = "Error " + what + " settings " + e;
+        try {
+            if (typeof game !== "undefined" && game && game.showAlert) return game.showAlert(msg)
+        } catch (t) {}
+        alert(msg)
+    },
     load: function() {
         try {
-            this.file.exists && (this.fs.open(this.file, "read"), this.settings = JSON.parse(this.fs.readUTFBytes(this.fs.bytesAvailable)), this.fs.close())
+            if (!this.file.exists) return;
+            this.settings = this.withStream("read", function(fs) {
+                return JSON.parse(fs.readUTFBytes(fs.bytesAvailable))
+            })
         } catch (t) {
-            alert("Error loading settings " + t)
+            this.ioError("loading", t)
         }
     },
     save: function() {
+        // Serialise first: opening in "write" truncates the file, so failing
+        // after that would leave an empty settings file behind.
+        var data;
         try {
-            this.fs.open(this.file, "write"), this.fs.writeUTFBytes(JSON.stringify(this.settings, null, "  ")), this.fs.close()
+            data = JSON.stringify(this.settings, null, "  ")
         } catch (t) {
-            alert("Error saving settings " + t)
+            return this.ioError("saving", t)
+        }
+        try {
+            this.withStream("write", function(fs) { fs.writeUTFBytes(data) })
+        } catch (t) {
+            this.ioError("saving", t)
         }
     },
     store: function(t, s) {

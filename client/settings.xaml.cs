@@ -15,6 +15,7 @@ using System.Web.Script.Serialization;
 using System.Text;
 using System.Diagnostics;
 using System.Windows.Forms;
+using System.Linq;
 
 namespace client
 {
@@ -45,6 +46,7 @@ namespace client
         public string langDropboxAuth { get { return Servers.getTrans("langDropboxAuth"); } set { } }
         public string langImport { get { return Servers.getTrans("langImport"); } set { } }
         public string langExport { get { return Servers.getTrans("langExport"); } set { } }
+        public string langStaticUrl { get { return Servers.getTrans("langStaticUrl"); } set { } }
 
         public string[] winSizes = new string[] { "", "maximized", "minimized", "fullscreen" };
         public string[] langs = new string[] { "", "de", "us", "en", "fr", "ru", "pl", "es", "nl", "cz", "pt", "it", "el", "ro", "cn" };
@@ -55,6 +57,10 @@ namespace client
             Closing += new System.ComponentModel.CancelEventHandler(login_Closing);
             Loaded += settings_Loaded;
             this.DataContext = this;
+            foreach (KeyValuePair<string, Server> srv in Servers._servers)
+            {
+                static_url.Items.Add(new ComboBoxItem() { Tag = srv.Key, Content = srv.Value.domain });
+            }
         }
         private void settings_Loaded(object sender, RoutedEventArgs e)
         {
@@ -79,6 +85,14 @@ namespace client
             {
                 int windowIndex = Array.IndexOf(winSizes, setting.window);
                 window_size.SelectedIndex = windowIndex >= 0 ? windowIndex : 0;
+            }
+            var item = static_url.Items.OfType<ComboBoxItem>().FirstOrDefault(x => x.Tag?.ToString() == setting.static_url);
+
+            if (item != null)
+                static_url.SelectedItem = item;
+            else
+            {
+                static_url.SelectedIndex = 0;
             }
         }
 
@@ -110,6 +124,7 @@ namespace client
             setting.lang = langs[Math.Max(0, game_lang_list.SelectedIndex)];
             setting.tsoFolderNearLauncher = (bool)tsoFolderNearLauncher.IsChecked;
             setting.skipUpdate = (bool)skipUpdate.IsChecked;
+            setting.static_url = (static_url.SelectedItem as ComboBoxItem).Tag.ToString();
             this.DialogResult = true;
         }
 

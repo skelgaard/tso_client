@@ -52,7 +52,7 @@ namespace client
         private string _langRemember;
         private string _dropboxToken;
         private static string extraVersion = "#TESTTAG#";
-        public const string appversion = "1.5.8.6";
+        public const string appversion = "1.6.0.1";
         public static bool forceFullAuth = false;
         public string version
         {
@@ -246,11 +246,16 @@ namespace client
         {
             lock (checkVersionLock)
             {
-            AutoUpdater.InstalledVersion = new Version(appversion);
-            AutoUpdater.ShowSkipButton = true;
-            AutoUpdater.OpenDownloadPage = true;
-            string changelogOwner = GetNewestChangelogOwner();
-            AutoUpdater.Start(string.Format("https://raw.githubusercontent.com/{0}/tso_client/master/changelog.xml", changelogOwner));
+            try
+            {
+                CaptchaWindow.PrepareWebView2Loader();
+                AutoUpdater.InstalledVersion = new Version(appversion);
+                AutoUpdater.ShowSkipButton = true;
+                AutoUpdater.OpenDownloadPage = true;
+                string changelogOwner = GetNewestChangelogOwner();
+                AutoUpdater.Start(string.Format("https://raw.githubusercontent.com/{0}/tso_client/master/changelog.xml", changelogOwner));
+            }
+            catch { }
             Dispatcher.BeginInvoke(new ThreadStart(delegate { butt.IsEnabled = false; error.Text = Servers.getTrans("checking"); }));
             if (!Directory.Exists(ClientDirectory))
                 Directory.CreateDirectory(ClientDirectory);
@@ -706,6 +711,10 @@ namespace client
             {
                 tsoUrl.Set("gfxcache", "true");
             }
+            if (_settings.static_url != "def")
+            {
+                tsoUrl.Set("s", string.Format("{0}/frontend|{1}/frontend", Servers._servers[_settings.static_url].domain, Servers._servers[_settings.static_url].domain));
+            }
             return tsoUrl;
         }
 
@@ -732,7 +741,12 @@ namespace client
             }
             try
             {
-                System.Diagnostics.Process.Start(string.Format("{0}\\client{1}.exe", ClientDirectory, _settings.x64 || cmd["x64"] != null ? "64" : ""), string.Format("{0}&version={1}{2}", _settings.tsoArg, appversion, extraVersion));
+                System.Diagnostics.Process.Start(new ProcessStartInfo
+                {
+                    FileName = string.Format("{0}\\client-starter{1}.exe", ClientDirectory, _settings.x64 || cmd["x64"] != null ? "64" : ""),
+                    Arguments = string.Format("{0}&version={1}{2}", _settings.tsoArg, appversion, extraVersion),
+                    WorkingDirectory = ClientDirectory
+                });
             } catch (Exception e)
             {
                 MessageBox.Show(string.Format("Error start client {0}", e.Message), "ERROR", MessageBoxButton.OK, MessageBoxImage.Error);
@@ -880,6 +894,7 @@ namespace client
         public string password { get; set; } = string.Empty;
         public string nickName { get; set; } = string.Empty;
         public string tsoArg { get; set; } = string.Empty;
+        public string static_url { get; set; } = "def";
         public bool remember { get; set; } = true;
         public int region { get; set; } = 16;
     }
